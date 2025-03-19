@@ -1,0 +1,214 @@
+import numpy as np
+import math
+import random
+import pandas as pd
+from math import cos, radians
+import matplotlib.pyplot as plt
+import pandas as pd
+import pickle as pkl
+
+#==settings =================================
+#假設發電15年 設5瓦
+iterations = 200  # 迭代次数
+machine_cost = 1406000
+record_cost = []
+storage_name = 'storage_name.pkl'
+maximum_dist = 50
+minimum_dist = 40
+
+#================================================================
+
+def sampleGeneartor(length):
+    X = np.arange(0, length, 0.01)
+    return X
+
+class woa():
+    #初始化
+    def __init__(self, X_train, LB,\
+                 UB, dim=4, b=1, whale_num=20, max_iter=500):
+        self.X_train = X_train
+        self.LB = LB
+        self.UB = UB
+        self.dim = dim
+        self.whale_num = whale_num
+        self.max_iter = max_iter
+        self.b = b
+        #Initialize the locations of whale
+        self.X = np.random.uniform(0, 1, (whale_num, dim))*(UB - LB) + LB
+        self.gBest_score = np.inf
+        self.gBest_curve = np.zeros(max_iter)
+        self.gBest_X = np.zeros(dim) 
+    
+    #适应度函数  
+    def fitFunc(self, input):
+        global length, maximum_dist, minimum_dist
+        # a = input[0]; b = input[1]; c = input[2]; d = input[3]
+        # Y_Hat = a*self.X_train**3 + b*self.X_train**2 + c*self.X_train + d 
+        # fitFunc = np.sum((Y_Hat - self.Y_train)**2)/np.shape(Y_Hat)[0]
+        input = sorted(input)
+        fitFunc = 0
+        penalty = 500
+        bias = 100
+        for i in range(1,len(input)):
+            distance = abs(input[i] - input[i-1])
+            if distance <= minimum_dist:
+                fitFunc += (bias + length)*penalty
+            elif distance < maximum_dist:
+                fitFunc += abs(maximum_dist - distance)
+            else:
+                fitFunc += (bias + distance)*penalty
+        # fitFunc = np.sum((input-500)**2)
+        fitFunc = fitFunc / len(input)
+        return fitFunc   
+        
+    #优化模块  
+    def opt(self):
+        t = 0
+        while t < self.max_iter:
+            for i in range(self.whale_num):
+                self.X[i, :] = np.clip(self.X[i, :], self.LB, self.UB) #Check boundries
+                fitness = self.fitFunc(self.X[i, :])
+                # Update the gBest_score and gBest_X
+                if fitness < self.gBest_score:
+                    self.gBest_score = fitness
+                    self.gBest_X = self.X[i, :].copy()
+            
+            a = 2*(self.max_iter - t)/self.max_iter
+            #Update the location of whales
+            for i in range(self.whale_num):
+                p = np.random.uniform()
+                R1 = np.random.uniform()
+                R2 = np.random.uniform()
+                A = 2*a*R1 - a
+                C = 2*R2
+                l = 2*np.random.uniform() - 1
+                
+                if p >= 0.5:
+                    D = abs(self.gBest_X - self.X[i, :])
+                    self.X[i, :] = D*np.exp(self.b*l)*np.cos(2*np.pi*l)+self.gBest_X
+                else:
+                    if abs(A) < 1:
+                        D = abs(C*self.gBest_X - self.X[i, :])
+                        self.X[i, :] = self.gBest_X - A*D
+                    else:
+                        rand_index = np.random.randint(low=0, high=self.whale_num)
+                        X_rand = self.X[rand_index, :]
+                        D = abs(C*X_rand - self.X[i, :])
+                        self.X[i, :] = X_rand - A*D
+        
+            self.gBest_curve[t] = self.gBest_score       
+            if (t%100 == 0) :
+                print('At iteration: ' + str(t))  
+            t+=1 
+        return self.gBest_curve, self.gBest_X
+    
+
+
+
+def plot_converge_curve(record_cost):
+    
+    # 繪製折線圖
+    iters = np.arange(1, 2001, 1)
+    plt.plot(iters, record_cost, marker='o')  # 使用圓圈標記每個數據點
+
+    # 標題和軸標籤
+    plt.title("Simple Line Chart Example")
+    plt.xlabel("Iters")
+    plt.ylabel("Records")
+
+    # 顯示圖表
+    plt.savefig('converge_curve.png')
+
+def compute_dis_xy(init_pos, final_pos, meter_per_degree_latitude):
+    
+
+    # 計算南北方向上的距離（Δ緯度 × 每度緯度的公尺數）
+    delta_latitude = final_pos[1] - init_pos[1]
+    distance_north_south = delta_latitude * meters_per_degree_latitude
+
+    # 計算東西方向上的距離（Δ經度 × cos(平均緯度) × 每度緯度的公尺數）
+    average_latitude = radians((init_pos[1] + final_pos[1]) / 2)
+    delta_longitude = final_pos[0] - init_pos[0]
+    distance_east_west = delta_longitude * cos(average_latitude) * meters_per_degree_latitude
+    return [distance_north_south, (-1)*distance_east_west]
+
+def get_compared_dist(points, meters_per_degree_latitude):
+
+    compared_dist = []
+    for point in points:
+        tmp_dist = compute_dis_xy(points[0,:], point, meters_per_degree_latitude)
+        compared_dist.append(tmp_dist)
+
+    compared_dist = np.array(compared_dist)
+    return compared_dist
+
+#useless function
+def get_acc_distance(points):
+    #utilize Danymic programming calculate acc_points
+    accumulated_points = points.copy()
+    for i in range(1, len(points)):
+        accumulated_points[i][0] = accumulated_points[i-1][0] + accumulated_points[i][0]
+        accumulated_points[i][1] = accumulated_points[i-1][1] + accumulated_points[i][1]
+    return accumulated_points
+
+def get_straight_dist(dist_points_meters, actual_length):
+    init = np.array([0, 0])
+    distances = np.linalg.norm(dist_points_meters - init, axis=1)
+
+    acc_dist = distances.copy()
+    for i in range(1, len(distances)):
+        acc_dist[i] = acc_dist[i-1] + acc_dist[i]
+    dilation = acc_dist[len(acc_dist)-1] / actual_length
+    distances = distances / dilation
+    acc_dist = acc_dist / dilation
+    return distances, acc_dist
+
+
+
+meters_per_degree_latitude = 111000 #經度換算公尺
+
+with open('point.xlsx', 'rb') as f:
+    data = pd.read_excel(f)
+
+points = np.vstack((data['經度'], data['緯度'])).T #原始座標
+dist_points_meters = get_compared_dist(points, meters_per_degree_latitude) #相對座標
+accumulated_points = get_acc_distance(dist_points_meters) #累計相對座標
+actual_length = data['總距離'][0]
+
+Straight_distance, accumulated_straight_dist = get_straight_dist(dist_points_meters, actual_length) #直線距離，累積距離
+
+
+#取出起始點[0,0] 終點
+init_pos = accumulated_straight_dist[0]
+final_dist = accumulated_straight_dist[-1]
+
+# #get distance
+length = np.linalg.norm(final_dist - init_pos) 
+init_pos = 0
+final_dist = length
+machine_amount = int(length // maximum_dist)
+cost_money = machine_amount * machine_cost
+
+print('================================================================')
+print('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+print('your cost is:', cost_money)
+print('distance :', length)
+print('machine amount :', machine_amount)
+print('================================================================')
+print('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+# # run
+
+#main function
+X = sampleGeneartor(length)
+LB = np.asarray([0]*machine_amount)
+UB = np.asarray([length]*machine_amount)
+
+fitnessCurve, para = woa(X, dim=machine_amount, whale_num=60, max_iter=2000, LB = LB, UB = UB, b = 2).opt()
+
+final_ans = sorted(para)
+print(final_ans)
+plot_converge_curve(fitnessCurve) 
+
+
+with open(storage_name, 'wb') as f:
+    pkl.dump(record_cost, f)

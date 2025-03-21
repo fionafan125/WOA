@@ -1,9 +1,13 @@
 import subprocess
 import numpy as np
+import os
 # 定义 Python 解释器和脚本名称
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)  # 強制變更當前目錄
 
 python_executable = "python"
+# script_name = "new_woa.py"
 script_name = "new_woa.py"
 cost = 380000
 spend_money = [1e7, 1.5e7, 2e7]
